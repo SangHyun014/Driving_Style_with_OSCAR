@@ -25,7 +25,7 @@ class DriveData:
                   'vel', 'vel_x', 'vel_y', 'vel_z',
                   'accel_x', 'accel_y', 
                   'pos_x', 'pos_y', 'pos_z',
-                  'goal_vel']
+                  'goal_vel', 'style']
     # , 
     #               'delta_steering_angle', 'delta_throttle', 'delta_brake']
 
@@ -41,6 +41,7 @@ class DriveData:
         self.velocities_xyz = []
         self.positions_xyz = []
         self.delta = []
+        self.styles = []
         
     def read(self, read = True, show_statistics = True, normalize = True):
         self.df = pd.read_csv(self.csv_fname, names=self.csv_header, index_col=False)
@@ -138,6 +139,7 @@ class DriveData:
                                             float(self.df.loc[i]['pos_y']), 
                                             float(self.df.loc[i]['pos_z'])))
                 self.goal_velocities.append(float(self.df.loc[i]['goal_vel']))
+                self.styles.append(float(self.df.loc[i]['style']))
                 # self.delta.append((float(self.df.loc[i]['delta_steering_angle']),
                 #                             float(self.df.loc[i]['delta_throttle']),
                 #                             float(self.df.loc[i]['delta_brake'])))

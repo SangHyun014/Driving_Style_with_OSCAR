@@ -92,6 +92,9 @@ class DriveTrain:
             if config['num_inputs'] == 3 and config['only_thr_brk'] is False:
                 train_samples = list(zip(self.t_data.image_names, self.t_data.velocities, self.t_data.measurements, self.t_data.goal_velocities))
                 valid_samples = list(zip(self.v_data.image_names, self.v_data.velocities, self.v_data.measurements, self.v_data.goal_velocities))
+            elif config['num_inputs'] == 4:
+                train_samples = list(zip(self.t_data.image_names, self.t_data.velocities, self.t_data.measurements, self.t_data.goal_velocities, self.t_data.styles))
+                valid_samples = list(zip(self.v_data.image_names, self.v_data.velocities, self.v_data.measurements, self.v_data.goal_velocities, self.v_data.styles))
             elif config['only_thr_brk'] is True:
                 train_samples = list(zip(self.t_data.image_names, self.t_data.velocities, self.t_data.measurements, self.t_data.goal_velocities))
                 valid_samples = list(zip(self.v_data.image_names, self.v_data.velocities, self.v_data.measurements, self.v_data.goal_velocities))
@@ -196,6 +199,8 @@ class DriveTrain:
             # throttles = []
             # brakes = []
             # deltas = []
+            styles = []
+
             if data is None:
                 data_path = self.data_path
             elif data == 'train':
@@ -318,6 +323,64 @@ class DriveTrain:
                         else:
                             measurements.append(steering_angle*config['steering_angle_scale'])
                 return images, velocities, measurements, goal_velocities
+
+            elif config['num_inputs'] == 4:
+                for image_name, velocity, measurement, goal_velocity, style in batch_samples:
+                    # for image_name, velocity, measurement, delta in batch_samples:
+                    image_path = data_path + '/' + image_name
+                    # print(image_path)
+                    image = cv2.imread(image_path)
+                    # if collected data is not cropped then crop here
+                    # otherwise do not crop.
+                    if Config.data_collection['crop'] is not True:
+                        image = image[Config.data_collection['image_crop_y1']:Config.data_collection['image_crop_y2'],
+                                    Config.data_collection['image_crop_x1']:Config.data_collection['image_crop_x2']]
+                    image = cv2.resize(image, 
+                                        (config['input_image_width'],
+                                        config['input_image_height']))
+                    image = self.image_process.process(image)
+                    # cv2.imwrite('/home/kdh/oscar/oscar/e2e_fusion_data/test/aug/'+image_name, image)
+                    # if data == 'train':
+                    #     cv2.imwrite('/mnt/Data/oscar/train_data/'+image_name, image)
+                    # print(image.shape)
+                    images.append(image)
+                    
+                    velocities.append(velocity)
+                    goal_velocities.append(goal_velocity-velocity)
+                    styles.append(style)
+                    # if no brake data in collected data, brake values are dummy
+                    steering_angle, throttle, brake = measurement
+                    
+                    if abs(steering_angle) < config['steering_angle_jitter_tolerance']:
+                        steering_angle = 0
+
+                    if config['num_outputs'] == 2:                
+                        measurements.append((steering_angle*config['steering_angle_scale'], throttle*config['throttle_scale']))
+                    elif config['num_outputs'] == 3:                
+                        measurements.append((steering_angle*config['steering_angle_scale'], throttle*config['throttle_scale'], brake*config['brake_scale']))
+                    else:
+                        measurements.append(steering_angle*config['steering_angle_scale'])
+                        # print("1 : ", steering_angle)
+                    
+                    # cv2.imwrite('/home/kdh/oscar/oscar/e2e_fusion_data/test/aug/'+image_name, image)
+                    # data augmentation
+                    append, image, steering_angle = _data_augmentation(image, steering_angle)
+                    if append is True:
+                        # cv2.imwrite('/home/kdh/oscar/oscar/e2e_fusion_data/test/aug/'+image_name, image)
+                        images.append(image)
+                        velocities.append(velocity)
+                        goal_velocities.append(goal_velocity-velocity)
+                        styles.append(style)
+                        if config['num_outputs'] == 2:                
+                            measurements.append((steering_angle*config['steering_angle_scale'], throttle*config['throttle_scale']))
+                        elif config['num_outputs'] == 3:                
+                            measurements.append((steering_angle*config['steering_angle_scale'], throttle*config['throttle_scale'], brake*config['brake_scale']))
+                        else:
+                            measurements.append(steering_angle*config['steering_angle_scale'])
+                
+                return images, velocities, measurements, goal_velocities, styles
+
+            
 
         def _prepare_lstm_batch_samples(batch_samples, data=None):
             images = []
@@ -445,6 +508,23 @@ class DriveTrain:
                             X_train_vel = np.array(velocities).reshape(-1, 1)
                             X_train_gvel = np.array(goal_vel).reshape(-1, 1)
                             X_train = [X_train_str, X_train_vel, X_train_gvel]
+                        elif config['num_inputs'] == 4 and config['style_train'] is True:
+                            #print(batch_samples)
+                            images, velocities, measurements, goal_vel, styles = _prepare_batch_samples(batch_samples, data)
+                            X_train_str = np.array(images)
+                            X_train_vel = np.array(velocities).reshape(-1, 1)
+                            X_train_gvel = np.array(goal_vel).reshape(-1, 1)
+                            X_train_sty = np.array(styles).reshape(-1, 1)
+                            X_train_mea = np.array(measurements)
+                            X_train = [X_train_str, X_train_vel, X_train_gvel, X_train_sty, X_train_mea]
+                        elif config['num_inputs'] == 4 and config['style_train'] is False:
+                            images, velocities, measurements, goal_vel, styles = _prepare_batch_samples(batch_samples, data)
+                            X_train_str = np.array(images)
+                            X_train_vel = np.array(velocities).reshape(-1, 1)
+                            X_train_gvel = np.array(goal_vel).reshape(-1, 1)
+                            X_train_sty = np.array(styles).reshape(-1, 1)
+                            X_train = [X_train_str, X_train_vel, X_train_gvel, X_train_sty]
+
                             
                         else:
                             images, _, measurements = _prepare_batch_samples(batch_samples, data)

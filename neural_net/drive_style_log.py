@@ -32,7 +32,7 @@ class DrivieStyleLog:
                   'vel', 'vel_x', 'vel_y', 'vel_z',
                   'accel_x', 'accel_y', 
                   'pos_x', 'pos_y', 'pos_z',
-                  'goal_vel']
+                  'goal_vel', 'style']
     ###########################################################################
     # model_path = 'path_to_pretrained_model_name' excluding '.h5' or 'json'
     # data_path = 'path_to_drive_data'  e.g. ../data/2017-09-22-10-12-34-56'

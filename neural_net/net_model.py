@@ -12,7 +12,7 @@ History:
 
 from keras.models import Sequential, Model, model_from_json
 from keras.layers import Lambda, Dropout, Flatten, Dense, Activation, Concatenate
-from keras.layers import Conv2D, Convolution2D, BatchNormalization, Input
+from keras.layers import Conv2D, Convolution2D, BatchNormalization, Input, Embedding, Reshape, GaussianNoise
 from keras.layers import MaxPooling2D, GlobalAveragePooling2D, AveragePooling2D, Add
 from keras.layers.recurrent import LSTM
 from keras.layers.wrappers import TimeDistributed
@@ -106,6 +106,296 @@ def pretrained_pilot(base_model_path):
     
     # print(base_model.get_layer('conv2d_3').output)
     return base_model
+
+###############################
+# Conditional Gan
+###############################
+
+#---------------------------------
+# Generator
+#---------------------------------
+def generator_cgan(base_model_path):
+
+    input_shape = (config['input_image_height'],
+                    config['input_image_width'],
+                    config['input_image_depth'],)
+    input_vel = (1,)
+    input_gvel = (1,)
+    input_style = (1,)
+    out_dim = (config['num_outputs']-1) if config.get('only_thr_brk', False) else config['num_outputs']
+    emb_dim = config.get('style_embed_dim', 16)   # 임베딩 차원
+    num_styles = config.get('num_styles', 2)      # 주행 스타일 클래스
+
+    img_input = Input(shape=input_shape)
+    vel_input = Input(shape=input_vel)
+    gvel_input = Input(shape=input_gvel)
+    style_input = Input(shape=input_style, dtype='int32')   # 일단 정수로 라벨링해서 수행 스타일 구분
+
+    base_model = pretrained_pilot(base_model_path)
+    pretrained_model_last = Model(base_model.input, base_model.get_layer('fc_out').output, name='base_model_output')
+    pretrained_model_conv3 = Model(base_model.input, base_model.get_layer('conv2d_3').output, name='base_model_conv2d_3')
+    pretrained_model_conv5 = Model(base_model.input, base_model.get_layer('conv2d_last').output, name='base_model_conv2d_last')
+    
+    # freeze
+    for m in [pretrained_model_last, pretrained_model_conv3, pretrained_model_conv5]:
+        m.trainable = False
+
+    # forward
+    base_model_last_output = pretrained_model_last([img_input, vel_input])
+    base_model_conv3_output = pretrained_model_conv3([img_input, vel_input])
+    base_model_conv5_output = pretrained_model_conv5([img_input, vel_input])
+
+    # Conv Feature concate
+    add_base_layer = Add()([base_model_conv3_output, base_model_conv5_output])
+
+    # 임베딩
+    fc_vel = Dense(100, activation='relu', name='fc_vel')(vel_input)
+    fc_gvel = Dense(100, activation='relu', name='fc_gvel')(gvel_input)
+    fc_base_out = Dense(100, activation='relu', name='fc_base_out')(base_model_last_output)
+    style_emb = Embedding(num_styles, emb_dim, name='style_emb')(style_input)     # (B, 1, emb_dim)
+    style_emb = Reshape((emb_dim,), name='style_flat')(style_emb)                 # (B, emb_dim)
+
+    # conv -> Flatten -> FC
+    flat = Flatten()(add_base_layer)
+    fc_1 = Dense(500, activation='relu', name='fc_1')(flat)
+    conc = Concatenate()([fc_base_out, fc_1, fc_vel, fc_gvel, style_emb])      # 정수 라벨링 추가
+    
+    # Noise 추가
+    conc = GaussianNoise(0.02, name='gn_noise')(conc)
+    fc_2 = Dense(200, activation='relu', name='fc_2')(conc)
+    drop = Dropout(rate=0.2)(fc_2)
+    fc_3 = Dense(100, activation='relu', name='fc_3')(drop)
+
+    # 출력 차원 유지
+    gen_out = Dense(out_dim, name='fc_out')(fc_3)
+
+    Generator_cGAN = Model(inputs=[img_input, vel_input, gvel_input], outputs=gen_out, name='Generator_cGAN')
+
+    return Generator_cGAN
+
+#---------------------------------
+# Discriminator
+#---------------------------------
+
+def discriminator_cgan(base_model_path):
+
+    input_shape = (config['input_image_height'],
+                    config['input_image_width'],
+                    config['input_image_depth'],)
+    input_vel = (1,)
+    input_gvel = (1,)
+    input_style = (1,)
+    out_dim = (config['num_outputs']-1) if config.get('only_thr_brk', False) else config['num_outputs']
+    emb_dim = config.get('style_embed_dim', 16)   # 임베딩 차원
+    num_styles = config.get('num_styles', 2)      # 주행 스타일 클래스
+
+    
+    img_input = Input(shape=input_shape, name='d_img_input')
+    vel_input = Input(shape=input_vel, name='d_vel_input')
+    gvel_input = Input(shape=input_gvel, name='gvel_input')
+    y_input = Input(shape=(out_dim), name='d_ctrl_input')  #real/fake vector
+    style_input = Input(shape=input_style, name='d_style_label')  # 주행 스타일 라벨링
+
+    # Image + vel 조건 Feature 추출
+    base = pretrained_pilot(base_model_path)
+    feat_last = Model(base.input, base.get_layer('fc_out').output, name='d_base_fc')
+    feat_last.trainable = False
+    
+    cond_feat = feat_last([img_input, vel_input])
+    cond_feat = Dense(128, activation='relu')(cond_feat)
+
+    # vel 임베딩
+    v = Dense(64, activation='relu')(vel_input)
+    gv = Dense(64, activation='relu')(gvel_input)
+
+    # 제어 vector와 Condition Concate
+    y_proj = Dense(128, activation='relu')(y_input)
+
+    # 주행 스타일 라벨 임베딩
+    style_emb = Embedding(num_styles, emb_dim, name='d_style_emb')(style_input)
+    style_emb = Reshape((emb_dim,), name='d_style_flat')(style_emb)
+
+    d_concat = Concatenate(name='d_concat')([cond_feat, v, gv, y_proj, style_emb])
+    d_h = Dense(256, activation='relu')(d_concat)
+    d_h = Dropout(0.3)(d_h)
+    d_h = Dense(128, activation='relu')(d_h)
+
+    d_out = Dense(1, activation='sigmoid', name='d_out')(d_h)
+
+    Discriminator_cGAN = Model(inputs=[img_input, vel_input, gvel_input, y_input], outputs=d_out, name='Discriminator_cGan')
+    return Discriminator_cGAN
+
+#---------------------------------
+# Combined
+#---------------------------------
+
+def Conditional_GAN(base_model_path, lambda_l1=100.0, lr_d=2e-4, lr_g=2e-4, beta_1=0.5, beta_2=0.999):
+    # 개별 모델
+    G = generator_cgan(base_model_path)
+    D = discriminator_cgan(base_model_path)
+
+    # Discriminator Compile
+    D.compile(optimizer=optimizers.Adam(lr=lr_d, beta_1=beta_1, beta_2=beta_2),
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+
+    # D 는 고정, G 만 업데이트
+    D.trainable = False
+
+    # Input (Generator와 동일)
+    input_shape = (config['input_image_height'],
+                    config['input_image_width'],
+                    config['input_image_depth'],)
+    out_dim = (config['num_outputs']-1) if config.get('only_thr_brk', False) else config['num_outputs']
+
+    c_img = Input(shape=input_shape)
+    c_vel = Input(shape=(1,))
+    c_gvel = Input(shape=(1,))
+    c_style = Input(shape=(1,), dtype='int32', name='c_style_label')
+
+    y_real = Input(shape=(out_dim,))  # L1 target(실제 제어벡터)
+
+    y_fake = G([c_img, c_vel, c_gvel, c_style])
+    d_fake = D([c_img, c_vel, c_gvel, c_style, y_fake])
+
+    CGAN = Model(inputs=[c_img, c_vel, c_gvel, c_style, y_real],
+                 outputs=[d_fake, y_fake],
+                 name='CGAN')
+
+    CGAN.compile(
+        optimizer=optimizers.Adam(lr_g, beta_1=beta_1, beta_2=beta_2),
+        loss=['binary_crossentropy', 'mae'],
+        loss_weights=[1.0, lambda_l1]
+    )
+    return G, D, CGAN
+
+
+#---------------------------------
+# Conditional VAE
+#---------------------------------
+
+def _cvae_sampling(args):
+    z_mean, z_logvar = args
+    eps = K.random_normal(shape=K.shape(z_mean))
+    return z_mean + K.exp(0.5 * z_logvar) * eps
+
+def build_cvae_with_label(
+        base_model_path,
+        latent_dim = 16,
+        beta_kl = 1e-3,
+        recon_loss = 'mse',
+        recon_weight = 1.0,
+        lr = 2e-4,
+        emb_dim = None
+):
+    input_shape = (config['input_image_height'],
+                    config['input_image_width'],
+                    config['input_image_depth'],)
+    input_vel = (1,)
+    input_gvel = (1,)
+    input_style = (1,)
+    out_dim = (config['num_outputs']-1) if config.get('only_thr_brk', False) else config['num_outputs']
+    emb_dim = config.get('style_embed_dim', 16)   # 임베딩 차원
+    num_styles = config.get('num_styles', 2)      # 주행 스타일 클래스
+    if emb_dim is None:
+        emb_dim = max(16, num_styles // 2)
+
+    img_input = Input(shape=input_shape)
+    vel_input = Input(shape=input_vel)
+    gvel_input = Input(shape=input_gvel)
+    style_input = Input(shape=input_style, dtype='int32')   # 일단 정수로 라벨링해서 수행 스타일 구분
+    y_true = Input(shape=(out_dim,))
+
+    base = pretrained_pilot(base_model_path)
+    m_tail = Model(base.input, base.get_layer('fc_out').output, name='cvae_backbone_fc')
+    m_c3 = Model(base.input, base.get_layer('conv2d_3').output, name='cvae_backbone_c3')
+    m_c5 = Model(base.input, base.get_layer('conv2d_last').output, name='cvae_backbone_c5')
+    for m in (m_tail, m_c3, m_c5):
+        m.trainable = False
+
+    tail = m_tail([img_input, vel_input])
+    c3 = m_c3([img_input, vel_input])
+    c5 = m_c5([img_input, vel_input])
+    cadd = Add(name='cvae_add_c3_c5')([c3, c5])
+
+    flat = Flatten(name='cvae_flat_conv')(cadd)
+    f_conv = Dense(500, activation='relu', name='cvae_fc1')(flat)
+    f_vel = Dense(100, activation='relu', name='cvae_fc_vel')(vel_input)
+    f_gvel = Dense(100, activation='relu', name='cvae_fc_gvel')(gvel_input)
+    f_tail = Dense(100, activation='relu', name='cvae_fc_tail')(tail)
+
+    s_emb = Embedding(num_styles, emb_dim, name='cvae_style_emb')(style_input)
+    s_emb = Reshape((emb_dim,), name='cvae_style_flat')(s_emb)
+
+    cond = Concatenate(name='cvae_cond_concat')([f_tail, f_conv, f_gvel, s_emb])
+    cond = GaussianNoise(0.05, name='cvae_cond_noise')(cond)
+    cond = Dense(256, activation='relu', name='cvae_cond_fc')(cond)
+
+    # Encoder
+    enc_in = Concatenate(name='cvae_enc_in')([y_true, cond])
+    h = Dense(256, activation='relu', name='cvae_enc_h1')(enc_in)
+    h = Dropout(0.2, name='cvae_enc_drop')(h)
+    h = Dense(128, activation='relu', name='cvae_enc_h2')(h)
+    z_mean = Dense(latent_dim, name='cvae_z_mean')(h)
+    z_logvar = Dense(latent_dim, name='cvae_z_logvar')(h)
+    z = Lambda(_cvae_sampling, name='cvae_z')([z_mean, z_logvar])
+
+    # Decoder
+    dec_cond_in = Input(shape=(K.int_shape(cond)[-1],), name='dec_cond_in')
+    dec_z_in = Input(shape=(latent_dim,), name='dec_z_in')
+    x = Concatenate(name='dec_concat')([dec_cond_in, dec_z_in])
+    x = Dense(200, activation='relu', name='dec_h1')(x)
+    x = Dropout(0.2, name='dec_drop')(x)
+    x = Dense(100, activation='relu', name='dec_h2')(x)
+    y_out = Dense(out_dim, name='dec_out')(x)
+    Decoder = Model(inputs=[dec_cond_in, dec_z_in], outputs=y_out, name='CVAE_Decoder')
+
+    y_pred = Decoder([cond, z])
+
+    # 학습용 VAE : 입력=[img, vel, gvel, style, y_true] -> 출력=y_pred
+    VAE = Model(inputs=[img_input, vel_input, gvel_input, style_input, y_true],
+                outputs=y_pred,
+                name='CVAE_train')
+    
+    # KL Loss
+    kl = -0.5 * K.mean(K.sum(1 + z_logvar - K.square(z_mean) - K.exp(z_logvar), axis=-1))
+    VAE.add_loss(beta_kl * kl)
+
+    # Reconstruction Loss
+    if recon_loss not in ('mae', 'mse'):
+        raise ValueError("recon_loss must be 'mae' or 'mse'")
+    VAE.compile(optimizer=optimizers.Adam(lr=lr),
+                loss=recon_loss,
+                loss_weights=[recon_weight],
+                metrics=['mae','mse'])
+    
+    # Inference
+    # CondEncoder : (img, vel, gvel, style) -> cond
+    CondEnc = Model(inputs=[img_input, vel_input, gvel_input, style_input],
+                    outputs=cond,
+                    name='CVAE_CondEncoder')
+
+    # mean z=0 사용 Predictor : (img, vel, gvel, style) -> y_hat
+    def _zeros_like_latent(t):
+        b = K.shape(t)[0]
+        return K.zeros((b, latent_dim))
+    z0 = Lambda(_zeros_like_latent, name='cvae_z_zero')(style_input)
+    y_mean = Decoder([CondEnc([img_input, vel_input, gvel_input, style_input]), z0])
+    Predictor = Model(inputs=[img_input, vel_input, gvel_input, style_input],
+                      outputs=y_mean,
+                      name='CVAE_Predictor_Mean')
+    
+    def _rand_latent(t):
+        b = K.shape(t)[0]
+        return K.random_normal((b, latent_dim))
+    zrand = Lambda(_rand_latent, name='cvae_z_rand')(style_input)
+    y_rand = Decoder([CondEnc([img_input, vel_input, gvel_input, style_input]), zrand])
+    Sampler = Model(inputs=[img_input, vel_input, gvel_input, style_input],
+                    outputs=y_rand,
+                    name='CVAE_Predictor_Sample')
+
+    return VAE, CondEnc, Decoder, Predictor, Sampler
+
 
 def model_style1(base_model_path):
 
@@ -205,7 +495,7 @@ def model_style2(base_model_path):
     # fc_thr = Dense(1, name='fc_thr')(fc_3)
     # fc_brk = Dense(1, name='fc_brk')(fc_3)
     
-    model = Model(inputs=[img_input, vel_input, gvel_input], outputs=[fc_out])
+    model = Model(inputs=[img_input, vel_input, gvel_iny_trueput], outputs=[fc_out])
     # model = Model(inputs=[img_input, vel_input], outputs=[fc_str, fc_thr, fc_brk])
     return model
 
@@ -244,6 +534,14 @@ class NetModel:
     def __init__(self, model_path, base_model_path=None):
         self.model = None
         self.base_model = None
+        self.vae = None
+        self.condenc = None
+        self.decoder = None
+        self.predictor = None
+        self.sampler = None
+        self.gen = None
+        self.disc = None
+        self.cgan = None
         model_name = model_path[model_path.rfind('/'):] # get folder name
         self.name = model_name.strip('/')
 
@@ -267,6 +565,24 @@ class NetModel:
     def _model(self, base_model_path = None):
         if config['network_type'] == const.NET_TYPE_PILOT:
             self.model = model_pilotnet()
+        elif config['network_type'] == const.NET_TYPE_CVAE:
+            (self.vae, self.condenc, self.decoder, self.predictor, self.sampler) = build_cvae_with_label(
+                base_model_path,
+                latent_dim = config.get('latent_dim', 16),
+                beta_kl = config.get('beta_kl', 1e-3),
+                recon_loss = config.get('recon_loss', 'mae'),
+                recon_weight = config.get('recon_weight', 1.0),
+                lr = config.get('vae_lr', 2e-4),
+                emb_dim = config.get('style_embed_dim', None)
+            )
+            if config['style_train'] is True:
+                self.model = self.vae
+            else:
+                self.model = self.predictor
+
+        elif config['network_type'] == const.NET_TYPE_CGAN:
+            self.gen, self.disc, self.cgan = Conditional_GAN(base_model_path)
+            self.model = self.gen
         elif config['network_type'] == const.NET_TYPE_STYLE1:
             self.model = model_style1(base_model_path)
             self.base_model = model_pilotnet()
@@ -274,7 +590,7 @@ class NetModel:
             self.model = model_style2(base_model_path)
             self.base_model = model_pilotnet()
         elif config['network_type'] == const.NET_TYPE_STYLE3:
-            self.model = model_style1(base_model_path)
+            self.model, _, _,  = build_cvae_with_label(base_model_path)
             self.base_model = model_pilotnet()
         elif config['network_type'] == const.NET_TYPE_STYLE4:
             self.model = model_style2(base_model_path)
@@ -299,11 +615,15 @@ class NetModel:
     ###########################################################################
     #
     def _compile(self):
+        if config['network_type'] == const.NET_TYPE_CVAE:
+            return
+        
         if config['lstm'] is True:
             learning_rate = config['lstm_lr']
         else:
             learning_rate = config['cnn_lr']
         decay = config['decay']
+
         self.model.compile(loss=losses.mean_squared_error,
                     optimizer=optimizers.Adam(lr=learning_rate, decay=decay, clipvalue=1), 
                     metrics=['accuracy'])
@@ -318,6 +638,14 @@ class NetModel:
     #
     # save model
     def save(self, model_name):
+        if config['network_type'] == const.NET_TYPE_CGAN:
+            self.gen.save_weights(model_name + '_G.h5', overwrite=True)
+            # self.disc.save_weights(model_name + '_D.h5', overwrite=True)    # Discriminator 필요 시 주석해제 
+            return
+        
+        if config['network_type'] == const.NET_TYPE_CVAE:
+            self.vae.save_weights(model_name + '_VAE.h5', overwrite=True)
+            return
 
         json_string = self.model.to_json()
         #weight_filename = self.model_path + '_' + Config.config_yaml_name \
@@ -340,6 +668,17 @@ class NetModel:
     
     
     def load(self):
+        # Conditional GAN
+        if config['network_type'] == const.NET_TYPE_CGAN:
+            self.gen.load_weights(self.model_path + '_G.h5')
+            # self.disc.load_weights(self.model_path + '_D.h5')
+            return
+        
+        # Conditional VAE
+        if config['network_type'] == const.NET_TYPE_CVAE:
+            self.vae.load_weights(self.model_path + '_VAE.h5')
+            return
+
         from keras.models import model_from_json
         # self.model = model_from_json(open(self.model_path+'.json').read())
         self.model.load_weights(self.model_path+'.h5')
@@ -352,6 +691,19 @@ class NetModel:
     #
     # show summary
     def summary(self):
+        if config['network_type'] == const.NET_TYPE_CGAN:
+            print('=== CGAN: Generator ==='); self.gen.summary()
+            print('=== CGAN: Discriminator ==='); self.disc.summary()
+            print('=== CGAN: Combined ==='); self.cgan.summary()
+            return
+        
+        if config['network_type'] == const.NET_TYPE_CVAE:
+            if config['style_train'] is True:
+                print('=== CVAE: VAE (train) ==='); self.vae.summary()
+            else:
+                print('=== CVAE: Predictor (inference) ==='); self.model.summary()
+            return
+        
         self.model.summary()
         if config['style_run'] is True:
             self.base_model.summary()

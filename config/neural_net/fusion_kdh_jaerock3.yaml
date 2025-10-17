@@ -10,12 +10,12 @@ version: 0.92
 ## neural network 
 
 # network definition
-network_type: 1       # refer to neural_net/const.py
+network_type: 32       # refer to neural_net/const.py
 gpus: 1
 
 weight_load: False
 
-style_train: False
+style_train: True
 style_run: False
 lstm: False
 lstm_timestep: 5
@@ -27,7 +27,7 @@ cnn_lr:  0.0001          # default of Adam is 0.001
 
 decay: 0.0000000001        #lstm = 1e-9, cnn = 1e-7 0.00000001
 # normalize data
-data_split: True
+data_split: False
 normalize_data: False
 samples_per_bin: 4000
 # training 
@@ -35,7 +35,7 @@ samples_per_bin: 4000
 validation_rate: 0.3
 num_epochs: 1
 batch_size: 1
-num_inputs: 3     # input: image, velocity
+num_inputs: 4    # base_model : 2(img, vel), fc : 3 (img, vel, gvel), CGAN,CVAE : 4(img, vel, gvel, style)
 num_outputs: 3    # output: steering_angle, throttle, brake
 only_thr_brk: False
 early_stopping_patience: 20000
