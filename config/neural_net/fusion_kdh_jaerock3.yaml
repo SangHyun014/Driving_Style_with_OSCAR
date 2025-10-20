@@ -33,7 +33,7 @@ samples_per_bin: 4000
 # training 
 # data_shuffle: True
 validation_rate: 0.3
-num_epochs: 1
+num_epochs: 100
 batch_size: 1
 num_inputs: 4    # base_model : 2(img, vel), fc : 3 (img, vel, gvel), CGAN,CVAE : 4(img, vel, gvel, style)
 num_outputs: 3    # output: steering_angle, throttle, brake
@@ -68,6 +68,6 @@ steering_angle_jitter_tolerance: 0.01
 
 
 # Network : 3 (sporty curve, straight)
-steering_angle_scale: 20.0                
+steering_angle_scale: 1.0                
 throttle_scale: 1.0
 brake_scale: 1.0
