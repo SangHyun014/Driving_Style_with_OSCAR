@@ -68,7 +68,6 @@ steering_angle_jitter_tolerance: 0.01
 
 
 # Network : 3 (sporty curve, straight)
-<<<<<<< HEAD
 steering_angle_scale: 1.95               
 throttle_scale: 1.0
 brake_scale: 1.0
@@ -79,8 +78,3 @@ recon_weight: 1.0
 vae_lr: 0.000001
 style_embed_dim: 16
 num_styles: 2
-=======
-steering_angle_scale: 1.0                
-throttle_scale: 1.0
-brake_scale: 1.0
->>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
