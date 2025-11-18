@@ -13,10 +13,11 @@ History:
 from keras.models import Sequential, Model, model_from_json
 from keras.layers import Lambda, Dropout, Flatten, Dense, Activation, Concatenate
 from keras.layers import Conv2D, Convolution2D, BatchNormalization, Input, Embedding, Reshape, GaussianNoise
-from keras.layers import MaxPooling2D, GlobalAveragePooling2D, AveragePooling2D, Add
+from keras.layers import MaxPooling2D, GlobalAveragePooling2D, AveragePooling2D, Add, LeakyReLU
 from keras.layers.recurrent import LSTM
 from keras.layers.wrappers import TimeDistributed
 from keras import losses, optimizers
+from keras.initializers import Constant
 import keras.backend as K
 import tensorflow as tf
 
@@ -26,6 +27,35 @@ from config import Config
 
 config = Config.neural_net
 config_rn = Config.run_neural
+
+# K.set_floatx('float64')
+
+def to_fx_const(v):
+    return K.constant(v, dtype=K.floatx())
+
+def cast_fx(x):
+    return K.cast(x, K.floatx())
+
+def to_f32(x):
+    return K.cast(x, 'float32')   # -> float32
+
+'''def _check_weights_for_nan(model, tag):
+    import numpy as np
+    bad = []
+    for l in model.layers:
+        try:
+            ws = l.get_weights()
+        except:
+            ws = []
+        for i, w in enumerate(ws):
+            if not np.isfinite(w).all():
+                bad.append((l.name, i, np.nanmin(w), np.nanmax(w)))
+    if bad:
+        print("[WARN] {} has NaN/Inf weights:".format(tag))
+        for b in bad:
+            print("  layer={}, idx={}, min={}, max={}".format(b[0], b[1], b[2], b[3]))
+    else:
+        print("[OK] {} weights finite".format(tag))'''
 
 def model_pilotnet():
     input_shape = (config['input_image_height'],
@@ -276,17 +306,27 @@ def Conditional_GAN(base_model_path, lambda_l1=100.0, lr_d=2e-4, lr_g=2e-4, beta
 
 def _cvae_sampling(args):
     z_mean, z_logvar = args
+<<<<<<< HEAD
+    z_logvar = K.clip(z_logvar, -10, 1.0)
+=======
+    z_logvar = K.clip(z_logvar, -10, 1.)
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
     eps = K.random_normal(shape=K.shape(z_mean))
     return z_mean + K.exp(0.5 * z_logvar) * eps
 
 def build_cvae_with_label(
         base_model_path,
+<<<<<<< HEAD
+        latent_dim = config['latent_dim'],
+        recon_weight = config['recon_weight'],
+        lr = config['vae_lr'],
+        emb_dim = config['style_embed_dim']
+=======
         latent_dim = 16,
-        beta_kl = 1e-3,
-        recon_loss = 'mse',
         recon_weight = 1.0,
-        lr = 2e-4,
+        lr = 1e-8,
         emb_dim = None
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
 ):
     input_shape = (config['input_image_height'],
                     config['input_image_width'],
@@ -294,11 +334,10 @@ def build_cvae_with_label(
     input_vel = (1,)
     input_gvel = (1,)
     input_style = (1,)
-    out_dim = (config['num_outputs']-1) if config.get('only_thr_brk', False) else config['num_outputs']
-    emb_dim = config.get('style_embed_dim', 16)   # 임베딩 차원
-    num_styles = config.get('num_styles', 2)      # 주행 스타일 클래스
-    if emb_dim is None:
-        emb_dim = max(16, num_styles // 2)
+    out_dim = config['num_outputs']
+    emb_dim = config['style_embed_dim']   # 임베딩 차원
+    num_styles = config['num_styles']    # 주행 스타일 클래스
+
 
     img_input = Input(shape=input_shape)
     vel_input = Input(shape=input_vel)
@@ -306,48 +345,101 @@ def build_cvae_with_label(
     style_input = Input(shape=input_style, dtype='int32')   # 일단 정수로 라벨링해서 수행 스타일 구분
     y_true = Input(shape=(out_dim,))
 
+<<<<<<< HEAD
+    lamb_img = Lambda(lambda x: x/127.5 - 1.0)(img_input) 
+    lamb_vel = Lambda(lambda x: x/40)(vel_input) 
+    lamb_gvel_input = Lambda(lambda x: (K.clip(x, -20.0, 20.0) + 20.0) / 40.0)(gvel_input)
+
+    conv_1 = Conv2D(24, (5, 5), strides=(2,2), activation='relu', name='conv2d_1')(lamb_img)
+=======
+    lamb_str = Lambda(lambda x: x/127.5 - 1.0)(img_input)
+    lamb_gvel_input = Lambda(lambda x: x/40)(gvel_input)
+    conv_1 = Conv2D(24, (5, 5), strides=(2,2), activation='relu', name='conv2d_1')(lamb_str)
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
+    conv_2 = Conv2D(36, (5, 5), strides=(2,2), activation='relu', name='conv2d_2')(conv_1)
+    conv_3 = Conv2D(64, (5, 5), strides=(2,2), activation='relu', name='conv2d_3')(conv_2)
+    conv_4 = Conv2D(64, (3, 3), padding='same',activation='relu', name='conv2d_4')(conv_3)
+    conv_5 = Conv2D(64, (3, 3), padding='same',activation='relu', name='conv2d_last')(conv_4)
+    flat = Flatten(name='cvae_flat_conv')(conv_5)
+
     base = pretrained_pilot(base_model_path)
     m_tail = Model(base.input, base.get_layer('fc_out').output, name='cvae_backbone_fc')
-    m_c3 = Model(base.input, base.get_layer('conv2d_3').output, name='cvae_backbone_c3')
-    m_c5 = Model(base.input, base.get_layer('conv2d_last').output, name='cvae_backbone_c5')
-    for m in (m_tail, m_c3, m_c5):
-        m.trainable = False
+<<<<<<< HEAD
+    m_tail.trainable = False
 
-    tail = m_tail([img_input, vel_input])
-    c3 = m_c3([img_input, vel_input])
-    c5 = m_c5([img_input, vel_input])
-    cadd = Add(name='cvae_add_c3_c5')([c3, c5])
+    tail = m_tail([lamb_img, lamb_vel]) 
+    # print(type(tail))
 
-    flat = Flatten(name='cvae_flat_conv')(cadd)
+    f_conv = Dense(128, activation='relu', name='cvae_fc1')(flat)
+    f_gvel = Dense(64, activation='relu', name='cvae_fc_gvel')(lamb_gvel_input)
+    f_tail = Dense(256, activation='relu', name='cvae_fc_tail')(tail)
+=======
+    tail = m_tail([img_input, vel_input]) 
+    # print(type(tail))
+    # tail_rescale = tf.divide(tail, config['steering_angle_scale'])
+
     f_conv = Dense(500, activation='relu', name='cvae_fc1')(flat)
-    f_vel = Dense(100, activation='relu', name='cvae_fc_vel')(vel_input)
-    f_gvel = Dense(100, activation='relu', name='cvae_fc_gvel')(gvel_input)
+    f_gvel = Dense(100, activation='relu', name='cvae_fc_gvel')(lamb_gvel_input)
     f_tail = Dense(100, activation='relu', name='cvae_fc_tail')(tail)
+    #f_tail = Dense(100, activation='relu', name='cvae_fc_tail')(tail_rescale)
+    
+    #steering, throttle, brake = tail
+    #f_str = Dense(100, activation='relu', name='cvae_fc_str')(steering)
+    #f_thr = Dense(100, activation='relu', name='cvae_fc_thr')(throttle)
+    #f_brk = Dense(100, activation='relu', name='cvae_fc_brk')(brake)
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
 
     s_emb = Embedding(num_styles, emb_dim, name='cvae_style_emb')(style_input)
     s_emb = Reshape((emb_dim,), name='cvae_style_flat')(s_emb)
 
     cond = Concatenate(name='cvae_cond_concat')([f_tail, f_conv, f_gvel, s_emb])
+<<<<<<< HEAD
+    #cond = GaussianNoise(0.02, name='cvae_cond_noise')(cond)
+=======
+    #cond = Concatenate(name='cvae_cond_concat')([f_str, f_thr, f_brk, f_conv, f_gvel, s_emb])
     cond = GaussianNoise(0.05, name='cvae_cond_noise')(cond)
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
     cond = Dense(256, activation='relu', name='cvae_cond_fc')(cond)
 
     # Encoder
     enc_in = Concatenate(name='cvae_enc_in')([y_true, cond])
     h = Dense(256, activation='relu', name='cvae_enc_h1')(enc_in)
-    h = Dropout(0.2, name='cvae_enc_drop')(h)
+    h = Dropout(0.1, name='cvae_enc_drop')(h)
     h = Dense(128, activation='relu', name='cvae_enc_h2')(h)
+    h = Dense(64, activation='relu', name='cvae_enc_h3')(h)
+    h = Dense(32, activation='relu', name='cvae_enc_h4')(h)
     z_mean = Dense(latent_dim, name='cvae_z_mean')(h)
-    z_logvar = Dense(latent_dim, name='cvae_z_logvar')(h)
+    z_logvar = Dense(latent_dim, name='cvae_z_logvar', bias_initializer=Constant(-2.0))(h)
     z = Lambda(_cvae_sampling, name='cvae_z')([z_mean, z_logvar])
 
     # Decoder
     dec_cond_in = Input(shape=(K.int_shape(cond)[-1],), name='dec_cond_in')
     dec_z_in = Input(shape=(latent_dim,), name='dec_z_in')
     x = Concatenate(name='dec_concat')([dec_cond_in, dec_z_in])
+<<<<<<< HEAD
+    x = Dense(256, activation='relu', name='dec_h1')(x)
+    x = Dense(128, activation='relu', name='dec_h2')(x)
+    x = Dense(64, activation='relu', name='dec_h3')(x)
+    x = Dense(32, activation='relu', name='dec_h4')(x)
+
+    #steer = Dense(1, activation='tanh', name='steer')(x)
+    #thr = Dense(1, activation='sigmoid', name='throttle')(x)
+    #brk = Dense(1, activation='sigmoid', name='brake')(x)
+
+    #y_out = Concatenate(name='dec_out')([steer, thr, brk])
+    y_out = Dense(out_dim, name='dec_out')(x)
+=======
     x = Dense(200, activation='relu', name='dec_h1')(x)
     x = Dropout(0.2, name='dec_drop')(x)
     x = Dense(100, activation='relu', name='dec_h2')(x)
-    y_out = Dense(out_dim, name='dec_out')(x)
+
+    steer = Dense(1, activation='tanh', name='steer')(x)
+    thr = Dense(1, activation='sigmoid', name='throttle')(x)
+    brk = Dense(1, activation='sigmoid', name='brake')(x)
+
+    y_out = Concatenate(name='dec_out')([steer, thr, brk])
+    # y_out = Dense(out_dim, name='dec_out')(x)
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
     Decoder = Model(inputs=[dec_cond_in, dec_z_in], outputs=y_out, name='CVAE_Decoder')
 
     y_pred = Decoder([cond, z])
@@ -358,16 +450,35 @@ def build_cvae_with_label(
                 name='CVAE_train')
     
     # KL Loss
-    kl = -0.5 * K.mean(K.sum(1 + z_logvar - K.square(z_mean) - K.exp(z_logvar), axis=-1))
-    VAE.add_loss(beta_kl * kl)
+    def stable_kl(z_mean, z_logvar):
+<<<<<<< HEAD
+        z_logvar = K.clip(z_logvar, -10, 1.0)   # 클리핑을 통해 KL 안정화
+        return -0.5 * K.mean(K.sum(1 + z_logvar - K.square(z_mean) - K.exp(z_logvar), axis=-1))
+=======
+        logvar = K.clip(z_logvar, -10.0, 1.0)   # 클리핑을 통해 KL 안정화
+        return -0.5 * K.mean(K.sum(1 + logvar - K.square(z_mean) - K.exp(logvar), axis=-1))
 
-    # Reconstruction Loss
-    if recon_loss not in ('mae', 'mse'):
-        raise ValueError("recon_loss must be 'mae' or 'mse'")
-    VAE.compile(optimizer=optimizers.Adam(lr=lr),
-                loss=recon_loss,
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
+    kl = stable_kl(z_mean, z_logvar)
+
+    kl_w = K.variable(0.0, name='kl_w')  # 0.0에서 시작해서 점진적으로 1.0까지 올릴 예정
+    VAE.add_loss(kl_w * kl)
+
+    VAE.kl_w = kl_w
+<<<<<<< HEAD
+   # VAE.add_loss(kl)
+
+    # Compile
+    VAE.compile(optimizer=optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, epsilon=1e-5, amsgrad=True),
+=======
+    #VAE.add_loss(kl)
+
+    # Compile
+    VAE.compile(optimizer=optimizers.Adam(lr=lr, decay=config['decay'], clipnorm=1.0, beta_1=0.9, beta_2=0.999),
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
+                loss=losses.mean_squared_error,
                 loss_weights=[recon_weight],
-                metrics=['mae','mse'])
+                metrics=['mse'])
     
     # Inference
     # CondEncoder : (img, vel, gvel, style) -> cond
@@ -379,15 +490,17 @@ def build_cvae_with_label(
     def _zeros_like_latent(t):
         b = K.shape(t)[0]
         return K.zeros((b, latent_dim))
+
+    def _rand_latent(t):
+        b = K.shape(t)[0]
+        return K.random_normal((b, latent_dim))
+
     z0 = Lambda(_zeros_like_latent, name='cvae_z_zero')(style_input)
     y_mean = Decoder([CondEnc([img_input, vel_input, gvel_input, style_input]), z0])
     Predictor = Model(inputs=[img_input, vel_input, gvel_input, style_input],
                       outputs=y_mean,
                       name='CVAE_Predictor_Mean')
     
-    def _rand_latent(t):
-        b = K.shape(t)[0]
-        return K.random_normal((b, latent_dim))
     zrand = Lambda(_rand_latent, name='cvae_z_rand')(style_input)
     y_rand = Decoder([CondEnc([img_input, vel_input, gvel_input, style_input]), zrand])
     Sampler = Model(inputs=[img_input, vel_input, gvel_input, style_input],
@@ -395,7 +508,6 @@ def build_cvae_with_label(
                     name='CVAE_Predictor_Sample')
 
     return VAE, CondEnc, Decoder, Predictor, Sampler
-
 
 def model_style1(base_model_path):
 
@@ -408,6 +520,7 @@ def model_style1(base_model_path):
     img_input = Input(shape=input_shape)
     vel_input = Input(shape=input_vel)
     gvel_input = Input(shape=input_gvel)
+
     
     base_model1 = pretrained_pilot(base_model_path)
     base_model2 = pretrained_pilot(base_model_path)
@@ -495,7 +608,7 @@ def model_style2(base_model_path):
     # fc_thr = Dense(1, name='fc_thr')(fc_3)
     # fc_brk = Dense(1, name='fc_brk')(fc_3)
     
-    model = Model(inputs=[img_input, vel_input, gvel_iny_trueput], outputs=[fc_out])
+    model = Model(inputs=[img_input, vel_input, gvel_input], outputs=[fc_out])
     # model = Model(inputs=[img_input, vel_input], outputs=[fc_str, fc_thr, fc_brk])
     return model
 
@@ -539,6 +652,7 @@ class NetModel:
         self.decoder = None
         self.predictor = None
         self.sampler = None
+        # self.condtap = None #디버깅용
         self.gen = None
         self.disc = None
         self.cgan = None
@@ -568,17 +682,23 @@ class NetModel:
         elif config['network_type'] == const.NET_TYPE_CVAE:
             (self.vae, self.condenc, self.decoder, self.predictor, self.sampler) = build_cvae_with_label(
                 base_model_path,
+<<<<<<< HEAD
+                latent_dim = config['latent_dim'],
+                recon_weight = config['recon_weight'],
+                lr = config['vae_lr'],
+                emb_dim = config['style_embed_dim']
+=======
                 latent_dim = config.get('latent_dim', 16),
-                beta_kl = config.get('beta_kl', 1e-3),
-                recon_loss = config.get('recon_loss', 'mae'),
                 recon_weight = config.get('recon_weight', 1.0),
-                lr = config.get('vae_lr', 2e-4),
+                lr = config.get('vae_lr', 1e-6),
                 emb_dim = config.get('style_embed_dim', None)
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
             )
             if config['style_train'] is True:
                 self.model = self.vae
             else:
                 self.model = self.predictor
+                self.base_model = model_pilotnet()
 
         elif config['network_type'] == const.NET_TYPE_CGAN:
             self.gen, self.disc, self.cgan = Conditional_GAN(base_model_path)
@@ -677,6 +797,7 @@ class NetModel:
         # Conditional VAE
         if config['network_type'] == const.NET_TYPE_CVAE:
             self.vae.load_weights(self.model_path + '_VAE.h5')
+            # _check_weights_for_nan(self.vae, "CVAE (after loading)")
             return
 
         from keras.models import model_from_json

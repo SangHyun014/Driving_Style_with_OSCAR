@@ -23,8 +23,29 @@ from config import Config
 from image_process import ImageProcess
 from data_augmentation import DataAugmentation
 from progressbar import ProgressBar
+from keras import backend as K
+import tensorflow as tf
+from keras.callbacks import Callback
 
 config = Config.neural_net
+
+class KLAnneal(Callback):  # ✅ keras.callbacks.Callback 상속
+    def __init__(self, kl_var, warmup_epochs=10, start=0.0, end=1.0):
+        super(KLAnneal, self).__init__()  # ✅ Py2 스타일
+        self.kl_var = kl_var
+        self.warmup_epochs = warmup_epochs
+        self.start = float(start)
+        self.end = float(end)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        ratio = min(1.0, epoch / float(self.warmup_epochs))
+        val = self.start + (self.end - self.start) * ratio
+        K.set_value(self.kl_var, val)
+        print("\n[KLAnneal] epoch {}: kl_w = {:.3f}".format(epoch, val))
+
+    # (선택) keras는 기본적으로 on_batch_begin이 있지만, 안전하게 더미 메서드 추가해도 됨
+    def on_batch_begin(self, batch, logs=None):
+        pass
 
 ###############################################################################
 #
@@ -211,7 +232,7 @@ class DriveTrain:
             if config['num_inputs'] == 2 or config['only_thr_brk'] is True:
                 for image_name, velocity, measurement, goal_velocity in batch_samples:
                     # for image_name, velocity, measurement, delta in batch_samples:
-                    image_path = data_path + '/' + image_name
+                    image_path = data_path + '/' + mage_name
                     # print(image_path)
                     image = cv2.imread(image_path)
                     # if collected data is not cropped then crop here
@@ -578,6 +599,11 @@ class DriveTrain:
         logdir = config['tensorboard_log_dir'] + datetime.now().strftime("%Y%m%d-%H%M%S")
         tensorboard = TensorBoard(log_dir=logdir)
         callbacks.append(tensorboard)
+        
+        # KL warm-up
+        if config['network_type'] == const.NET_TYPE_CVAE:
+            KL_warmup = KLAnneal(kl_var=self.net_model.model.kl_w, warmup_epochs=15, start=0.0, end=1.0)
+            callbacks.append(KL_warmup)
 
         self.train_hist = self.net_model.model.fit_generator(
                 self.train_generator, 
@@ -600,7 +626,7 @@ class DriveTrain:
         plt.plot(self.train_hist.history['loss'][1:])
         plt.plot(self.train_hist.history['val_loss'][1:])
         #plt.title('Mean Squared Error Loss')
-        plt.ylabel('mse loss')
+        plt.ylabel('loss')
         plt.xlabel('epoch')
         plt.legend(['training set', 'validatation set'], loc='upper right')
         plt.tight_layout()

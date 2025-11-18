@@ -15,8 +15,8 @@ gpus: 1
 
 weight_load: False
 
-style_train: True
-style_run: False
+style_train: False
+style_run: True
 lstm: False
 lstm_timestep: 5
 lstm_dataterm: 1
@@ -33,7 +33,7 @@ samples_per_bin: 4000
 # training 
 # data_shuffle: True
 validation_rate: 0.3
-num_epochs: 1
+num_epochs: 100
 batch_size: 1
 num_inputs: 4    # base_model : 2(img, vel), fc : 3 (img, vel, gvel), CGAN,CVAE : 4(img, vel, gvel, style)
 num_outputs: 3    # output: steering_angle, throttle, brake
@@ -68,6 +68,19 @@ steering_angle_jitter_tolerance: 0.01
 
 
 # Network : 3 (sporty curve, straight)
-steering_angle_scale: 20.0                
+<<<<<<< HEAD
+steering_angle_scale: 1.95               
 throttle_scale: 1.0
 brake_scale: 1.0
+
+# CVAE
+latent_dim: 32
+recon_weight: 1.0
+vae_lr: 0.000001
+style_embed_dim: 16
+num_styles: 2
+=======
+steering_angle_scale: 1.0                
+throttle_scale: 1.0
+brake_scale: 1.0
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a

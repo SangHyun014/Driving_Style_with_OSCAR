@@ -1,8 +1,15 @@
 # Ignore data folder
 data/
+result/
 ce491_data/
 e2e_fusion_data/
 e2e_rover_data/
+PX4-Autopilot/
+<<<<<<< HEAD
+result/
+Test1_no_normalize/
+=======
+>>>>>>> ab1c142b3f69d4c7abe74dd778de3073058b7c7a
 
 devel/
 logs/

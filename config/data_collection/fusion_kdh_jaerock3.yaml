@@ -29,7 +29,10 @@ vehicle_control_topic: /fusion
 vehicle_control_topic1: /fusion1
 vehicle_control_topic2: /fusion2
 vehicle_steer_topic: /steer
+
 goal_velocity: /goal_velocity
+style: /style
+
 # p3d - current position and velocity
 base_pose_topic: /base_pose_ground_truth
 # imu topic name

@@ -41,6 +41,8 @@ config = Config.neural_net
 velocity = 0.0
 g_steer = 0.0
 goal_velocity = 0.0
+style = 0
+
 class NeuralControl:
     def __init__(self, weight_file_name, base_weight_name=None):
         rospy.init_node('run_neural')
@@ -56,6 +58,7 @@ class NeuralControl:
         self.lstm_image = []
         self.lstm_vel = []
         self.term_count = 0
+
     def _controller_cb(self, image): 
         img = self.ic.imgmsg_to_opencv(image)
         cropped = img[Config.data_collection['image_crop_y1']:Config.data_collection['image_crop_y2'],
@@ -71,10 +74,30 @@ class NeuralControl:
                                   
         self.image = self.image_process.process(img)
         # self.base_model_image = self.image_process.process(base_model_img)
+        
+        # image NaN 디버깅
+        """ 
+        try:
+            arr = self.image
+            finite = np.isfinite(arr).all()
+            # 모든 값이 NaN이면 nanmin/max에서 경고가 나므로 보호
+            if np.isnan(arr).all():
+                mn, mx = float('nan'), float('nan')
+            else:
+                mn, mx = float(np.nanmin(arr)), float(np.nanmax(arr))
+            # 0.5초에 한 번만 로그
+            now = time.time()
+            if now - self._dbg_last_log > 0.5:
+                rospy.loginfo("image_proc: finite=%s min=%.3f max=%.3f shape=%s dtype=%s",
+                              str(finite), mn, mx, str(getattr(arr, 'shape', None)), str(arr.dtype))
+                self._dbg_last_log = now
+        except Exception as e:
+            rospy.logwarn("image_proc: exception in NaN check: %s", str(e))
+        """
 
         ## this is for CNN-LSTM net models
         if config['lstm'] is True:
-            if self.term_count % Config.run_neural['lstm_dataterm'] is 0:
+            if self.term_count % Config.run_neural['lstm_dataterm'] == 0:
                 self.lstm_image.append(self.image)
                 if len(self.lstm_image) > config['lstm_timestep'] :
                     del self.lstm_image[0]
@@ -106,12 +129,15 @@ def pos_vel_cb(value):
     
 def goal_vel_cb(value):
     global goal_velocity
-
     goal_velocity = value.data
 
 def steer_cb(value):
     global g_steer
     g_steer = value.data
+
+def style_cb(value):
+    global style
+    style = value.data
 
 def main(weight_file_name, base_weight_name=None):
 
@@ -121,6 +147,8 @@ def main(weight_file_name, base_weight_name=None):
     rospy.Subscriber(Config.data_collection['base_pose_topic'], Odometry, pos_vel_cb)
     rospy.Subscriber(Config.data_collection['vehicle_steer_topic'], Float64, steer_cb)
     rospy.Subscriber(Config.data_collection['goal_velocity'], Float64, goal_vel_cb)
+    rospy.Subscriber(Config.data_collection['style'], Int32, style_cb)
+
     # ready for /bolt topic publisher
     joy_pub = rospy.Publisher(Config.data_collection['vehicle_control_topic'], Control, queue_size = 10)
     joy_data = Control()
@@ -136,20 +164,36 @@ def main(weight_file_name, base_weight_name=None):
     while not rospy.is_shutdown():
 
         if neural_control.image_processed is False:
+            neural_control.rate.sleep()
             continue
         
         start = time.time()
-        end = time.time()
+
         # predicted steering angle from an input image
         if config['num_inputs'] == 3:
-            # print(velocity)
-            steer, throttle, brake = neural_control.drive.run((neural_control.image, velocity, float(int(goal_velocity-velocity))))
+            steer, throttle, brake = neural_control.drive.run((neural_control.image, velocity, float(goal_velocity-velocity)))
             # steer, throttle, brake = neural_control.drive.run((neural_control.image, neural_control.base_model_image, velocity, goal_velocity))
+                      
             joy_data.steer = steer
             joy_data.throttle = throttle
             joy_data.brake = brake
-                
+        
+        if config['num_inputs'] == 4:
+
+            # NaN 디버깅용
+            # feats, y = neural_control.drive.debug_cvae_outputs(neural_control.image, velocity, float(goal_velocity-velocity), style)            # 예: cond 최종만 확인
+            # cond = feats.get('cvae_cond_fc')  # shape: (1, 256)
+            # rospy.loginfo("cond finite=%s min=%.3f max=%.3f y_mean=%s",
+            #            np.isfinite(cond).all(), np.nanmin(cond), np.nanmax(cond),
+            #            np.array2string(y[0], precision=3))
             
+            steer, throttle, brake = neural_control.drive.run((neural_control.image, velocity, float(goal_velocity-velocity), style))
+            joy_data.steer = steer
+            joy_data.throttle = throttle
+            joy_data.brake = brake
+
+        end = time.time()
+
         #############################
         ## very very simple controller
         ## 
@@ -190,8 +234,8 @@ def main(weight_file_name, base_weight_name=None):
 
         ## print out
         # print(joy_data.steer, joy_data.throttle, joy_data.brake, velocity)
-        cur_output = '{0:.3f} \t{1:.3f} \t{2:.3f} \t{3:.3f} \t{4:.3f} \t{5}\r'.format(joy_data.steer, 
-                        joy_data.throttle, joy_data.brake, velocity, goal_velocity, end)
+        hz = (1.0/(end-start)) if end>start else 0.0
+        cur_output = '{0:.3f} \t{1:.3f} \t{2:.3f} \t{3:.3f} \t{4:.3f} \t{5:.1f}\r'.format(joy_data.steer, joy_data.throttle, joy_data.brake, velocity, goal_velocity, hz)
 
         sys.stdout.write(cur_output)
         sys.stdout.flush()

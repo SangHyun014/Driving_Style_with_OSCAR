@@ -72,6 +72,9 @@ elif [ "$1" == "track_curve_left" ] ; then
 elif [ "$1" == "track_style_train" ] ; then
     echo "Starting with $1..." #### experimental
     roslaunch fusion sitl.launch world:=$1 x:=0 y:=0 z:=0.3 R:=0 P:=0 Y:=0
+elif [ "$1" == "track_style_train_obstacle" ] ; then
+    echo "Starting with $1..." #### experimental
+    roslaunch fusion sitl.launch world:=$1 x:=0 y:=0 z:=0.3 R:=0 P:=0 Y:=0
 elif [ "$1" == "track_style_test" ] ; then
     echo "Starting with $1..." #### experimental
     roslaunch fusion sitl.launch world:=$1 x:=0 y:=0 z:=0.3 R:=0 P:=0 Y:=0

@@ -1163,5 +1163,68 @@
       </link>
       <pose frame=''>-338.383 343.471 0 0 -0 0</pose>
     </model>
+    <model name="parked_prius_lane_1">
+      <static>1</static> 
+      <pose>242.870285 -0.074398 0.02 0 0 1.576165</pose> <!-- x y z R P Y -->
+      <include>
+        <uri>model://prius_hybrid</uri>
+      </include>
+    </model>
+    <model name="parked_prius_lane_2">
+      <static>1</static> 
+      <pose>355.496 4.21295 0.02 0 0 1.576165</pose> <!-- x y z R P Y -->
+      <include>
+        <uri>model://prius_hybrid</uri>
+      </include>
+    </model>
+    <model name="parked_prius_lane_3">
+      <static>1</static> 
+      <pose>525.979 4.064030 0.02 0 0 1.576165</pose> <!-- x y z R P Y -->
+      <include>
+        <uri>model://prius_hybrid</uri>
+      </include>
+    </model>
+    <model name="parked_prius_lane_4">
+      <static>1</static> 
+      <pose>1547.72 -787.033 0.02 0 0 0</pose> <!-- x y z R P Y -->
+      <include>
+        <uri>model://prius_hybrid</uri>
+      </include>
+    </model>
+    <model name="parked_prius_lane_5">
+      <static>1</static> 
+      <pose>1551.82 -883.614 0.02 0 0 0</pose> <!-- x y z R P Y -->
+      <include>
+        <uri>model://prius_hybrid</uri>
+      </include>
+    </model>
+    <model name="parked_prius_lane_6">
+      <static>1</static> 
+      <pose>2126.55 -1595.11 0.02 0 0 1.576165</pose> <!-- x y z R P Y -->
+      <include>
+        <uri>model://prius_hybrid</uri>
+      </include>
+    </model>
+    <model name="parked_prius_lane_8">
+      <static>1</static> 
+      <pose>2255.72 -1599.88 0.02 0 0 1.576165</pose> <!-- x y z R P Y -->
+      <include>
+        <uri>model://prius_hybrid</uri>
+      </include>
+    </model>
+    <model name="parked_prius_lane_9">
+      <static>1</static> 
+      <pose>2467.51 -1595.38 0.02 0 0 1.576165</pose> <!-- x y z R P Y -->
+      <include>
+        <uri>model://prius_hybrid</uri>
+      </include>
+    </model>
+    <model name="parked_prius_lane_10">
+      <static>1</static> 
+      <pose>2596.27 -1600.15 0.02 0 0 1.576165</pose> <!-- x y z R P Y -->
+      <include>
+        <uri>model://prius_hybrid</uri>
+      </include>
+    </model>
   </world>
 </sdf>
