@@ -1,17 +1,3 @@
-None selected
-
-Skip to content
-Using University of Michigan Mail with screen readers
-in:sent 
-Enable desktop notifications for University of Michigan Mail.
-   OK  No thanks
-
-Conversations
- 
-Program Policies
-Powered by Google
-Last account activity: 40 minutes ago
-Details
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
